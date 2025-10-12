@@ -11,6 +11,5 @@ def detect_image(model, img_path):
 
 
 def save_image(img, output_path):
-    """Lưu ảnh kết quả sau nhận diện."""
     cv2.imwrite(output_path, img)
     print(f"Đã lưu tại: {output_path}")

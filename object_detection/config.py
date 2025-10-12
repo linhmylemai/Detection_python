@@ -1,25 +1,27 @@
-MODEL_PATH = "yolo8n.pt"
 CONFIDENCE_THRESHOLD = 0.5
-# Configuration settings for the object detection app
+
 class Config:
     # Window settings
-    WINDOW_WIDTH = 1100
+    WINDOW_WIDTH = 1400
     WINDOW_HEIGHT = 700
-    MENU_WIDTH = 200
+    MENU_WIDTH = 300
 
-    # YOLO model settings
+    # YOLO model
     MODEL_PATH = "yolov8n.pt"
-    OUTPUT_DIR = "outputs"
-    RESULTS_SUBDIR = "results"
 
-    # Image processing settings
-    IMAGE_RESIZE_WIDTH = 850
-    IMAGE_RESIZE_HEIGHT = 600
+    # Data directories
+    DATA_DIR = "data"
+    INPUTS = "inputs"
+    OUTPUTS = "outputs"
+
+    # Image display
+    IMAGE_W = 900
+    IMAGE_H = 700
 
     # Frame rate and timing
-    FRAME_DELAY = 20  # milliseconds
+    FRAME_DELAY = 20  # ms
     MIN_FPS = 1e-6
-
-    # File types
-    IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
-    VIDEO_EXTENSIONS = (".mp4", ".avi", ".mov")
+    # Supported file types
+    IMAGE_EXTS = (".jpg", ".jpeg", ".png")
+    VIDEO_EXTS = (".mp4", ".avi", ".mov")
+    
