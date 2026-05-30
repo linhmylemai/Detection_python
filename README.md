@@ -53,25 +53,25 @@ pip install -r requirements.txt
 python -m object_detection.app
 ```
 
----
-
 ## Project Structure
+
+```
 Detection_python/
-├── object_detection/
-│   ├── app.py              # Main controller, manages GUI and modules
-│   ├── camera.py           # Live camera stream handler
-│   ├── video_detector.py   # Video file handler with Pause/Resume
-│   ├── image_detector.py   # Static image handler
-│   ├── history_view.py     # Detection history display
-│   └── config.py           # System config (paths, YOLO params, UI colors)
-├── docs/                   # Documentation
-├── tests/                  # Unit tests
-├── detection_log.csv       # Detection history (CSV)
-├── detection_log.json      # Detection history (JSON)
-├── yolov8n.pt              # YOLOv8 nano model weights
-├── requirements.txt
-└── README.md
----
+    object_detection/
+        app.py              # Main controller, manages GUI and modules
+        camera.py           # Live camera stream handler
+        video_detector.py   # Video file handler with Pause/Resume
+        image_detector.py   # Static image handler
+        history_view.py     # Detection history display
+        config.py           # System config (paths, YOLO params, UI colors)
+    docs/                   # Documentation
+    tests/                  # Unit tests
+    detection_log.csv       # Detection history (CSV)
+    detection_log.json      # Detection history (JSON)
+    yolov8n.pt              # YOLOv8 nano model weights
+    requirements.txt
+    README.md
+```
 
 ---
 
