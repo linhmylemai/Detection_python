@@ -1,57 +1,98 @@
+import cv2
+import time
+import os
 from ultralytics import YOLO
-import cv2, os, time
 from object_detection.utils.save_log import save_detection_log
+from object_detection.config import Config
 
-def detect_video(video_path, model_path="yolov8n.pt"):
-    """
-    Nhận dạng đối tượng trong video.
-    Chỉ lưu log CSV, không sinh video/ảnh.
-    """
-    if not os.path.exists(video_path):
-        print(f"❌ Không tìm thấy video: {video_path}")
-        return
+class VideoDetector:
+    def __init__(self, model_path: str = "yolov8n.pt"):
+        """
+        Khởi tạo VideoDetector với mô hình YOLO.
 
-    print("🚀 Đang load model YOLO (CPU)...")
-    model = YOLO(model_path)
+        Args:
+            model_path (str): Đường dẫn đến file mô hình YOLO.
+        """
+        print("🚀 Đang load model YOLO (CPU)...")
+        self.model = YOLO(model_path)
+        self.cap = None
+        self.running_mode = None
+        self.paused = False
+        self.last_frame = None  # Thêm để lưu frame cuối cùng khi tạm dừng
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print("❌ Không thể mở video.")
-        return
+    def detect_video(self, video_path: str) -> bool:
+        """
+        Mở và bắt đầu xử lý video từ đường dẫn file.
+        Args:
+            video_path (str): Đường dẫn đến file video.
+        Returns:
+            bool: True nếu mở video thành công, False nếu thất bại.
+        """
+        if not os.path.exists(video_path):
+            print(f"❌ Không tìm thấy video: {video_path}")
+            return False
 
-    frame_count = 0
-    results_summary = []  # lưu nhãn & độ chính xác
+        self.stop()
+        self.current_video_path = video_path
+        self.cap = cv2.VideoCapture(video_path)
+        self.running_mode = "video"
+        if not self.cap.isOpened():
+            print(f"❌ Không thể mở video: {video_path}. Kiểm tra định dạng hoặc codec.")
+            return False
+        try:
+            fourcc = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+            codec = chr(fourcc & 0xFF) + chr((fourcc >> 8) & 0xFF) + chr((fourcc >> 16) & 0xFF) + chr((fourcc >> 24) & 0xFF)
+            print(f"📹 Video codec: {codec}")
+        except Exception as e:
+            print(f"⚠️ Không thể kiểm tra codec: {str(e)}")
+        return True
 
-    print("🎥 Bắt đầu nhận dạng realtime (nhấn Q để thoát)\n")
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("📁 Video đã phát hết.")
-            break
-
-        frame_count += 1
-        if frame_count % 5 != 0:
-            continue
-
-        start_time = time.time()
-        results = model(frame, verbose=False)
-
-        # ✅ Thu thập kết quả
-        for r in results:
-            for box in r.boxes:
-                cls = int(box.cls[0])
-                label = model.names[cls]
-                conf = float(box.conf[0])
-                results_summary.append((label, conf))
-
-        fps = 1 / (time.time() - start_time + 1e-6)
-        cv2.imshow("YOLO Video Detection", results[0].plot())
-
+    def toggle_pause(self) -> bool:
+        self.paused = not self.paused
+        print(f"⏯ Video {'tạm dừng' if self.paused else 'tiếp tục'}.")
+        return self.paused
+    
+    def process_stream(self) -> tuple:
+        if self.cap is None or self.running_mode not in ("video", "camera"):
+            print("⚠️ Không có stream để xử lý.")
+            return None, None, None
         
+        if self.paused:
+            if self.last_frame is not None:
+                return self.last_frame, None, 0.0
+            return None, None, None
 
-    # ✅ Ghi log
-    save_detection_log("Video", video_path, results_summary)
-    cap.release()
-    cv2.destroyAllWindows()
-    print("✅ Kết thúc nhận dạng video và đã lưu log.")
+        ret, frame = self.cap.read()
+        if not ret:
+            print("📁 Video đã kết thúc.")
+            return None, None, None
+
+        frame_small = cv2.resize(frame, (320, 320))
+        start = time.time()
+        results = self.model(frame_small, verbose=False)
+        annotated = results[0].plot()
+        fps = 1 / (time.time() - start + Config.MIN_FPS)
+
+        self.last_frame = annotated  # Lưu frame cuối cùng
+        detected_objects = []
+        if len(results[0].boxes) > 0:
+            for box in results[0].boxes:
+                cls = int(box.cls[0])
+                conf = float(box.conf[0])
+                label = self.model.names[cls]
+                detected_objects.append((label, conf))
+        if detected_objects:
+            source = self.current_video_path if self.running_mode == "video" else "Live Stream"
+            save_detection_log(self.running_mode.capitalize(), source, detected_objects)
+
+        return annotated, results, fps
+    
+    def stop(self):
+        """
+        Dừng video hoặc camera và giải phóng tài nguyên.
+        """
+        self.running_mode = None
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+        self.cap = None
+        print("⏹ Stream đã dừng.")

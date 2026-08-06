@@ -7,14 +7,14 @@ from matplotlib.pyplot import box
 from torch import classes
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 from ultralytics import YOLO
 from webcolors import names
 
 # ✅ Import chuẩn theo package
 from object_detection.detectors.image_detector import detect_single_image
-from object_detection.detectors.video_detector import detect_video
+from object_detection.detectors.video_detector import VideoDetector
 from object_detection.detectors.camera_detector import CameraHandler
 from object_detection.utils.save_log import LOG_FILE, save_detection_log
 from object_detection.config import Config
@@ -29,7 +29,7 @@ os.makedirs(os.path.join(Config.OUTPUTS, "results"), exist_ok=True)
 # ===== Nạp mô hình =====
 model = YOLO(os.path.join(Config.MODELS_DIR, Config.MODEL_PATH))
 print("✅ Mô hình YOLO đã sẵn sàng!")
-
+video_detector = VideoDetector(os.path.join(Config.MODELS_DIR, Config.MODEL_PATH))
 
 # ===== GIAO DIỆN CHÍNH =====
 root = tb.Window(themename="cosmo")
@@ -68,7 +68,9 @@ lbl.place_forget()
 
 last_status_text = ""
 
-
+# ===== KHUNG CHỨA NÚT PAUSE =====
+pause_frame = tb.Frame(root)
+pause_frame.place_forget()
 # ===== KHUNG CHỨA VIDEO (Pause / Replay) =====
 video_control_frame = tb.Frame(lbl, bootstyle="dark")
 video_control_frame.place_forget()
@@ -85,12 +87,11 @@ status = tb.Label(
 status.pack(side="bottom", fill="x")
 
 # ===== CÁC BIẾN TOÀN CỤC =====
-cap = None
-frame_count = 0
-running_mode = None
+
 after_id = None
-paused = False
-current_video_path = None
+cap = None
+running_mode = None
+
 # ===== Hàm cập nhật trạng thái =====
 def update_status(msg):
     global last_status_text
@@ -170,81 +171,50 @@ def detect_image_gui():
 
 # ===== Dừng video / camera =====
 def stop_current():
-    global cap, running_mode, after_id
-    running_mode = None
+    global after_id, cap, running_mode
+    video_detector.stop()
     if after_id:
         root.after_cancel(after_id)
+        after_id = None
     if cap and cap.isOpened():
         cap.release()
     cap = None
-
-    if running_mode in ("image", "camera"):
-        video_control_frame.place_forget()
     running_mode = None
+    lbl.place_forget()
+    video_control_frame.place_forget()
     update_status("⏹ Đã dừng video/camera.")
 
-# ===== Tạm dừng / tiếp tục =====
-def toggle_pause():
-    global paused
-    paused = not paused
+# ===== Xử lý video =====
+def toggle_pause(btn):
+    paused = video_detector.toggle_pause()
     if paused:
         update_status("⏸ Video tạm dừng.")
-        btn_pause.config(text="▶ Tiếp tục", bootstyle="success-outline")
+        btn.config(text="▶", bootstyle="success-outline")
     else:
         update_status("🎬 Tiếp tục phát video...")
-        btn_pause.config(text="⏸ Tạm dừng", bootstyle="warning-outline")
-
-# ===== Phát lại video =====
-def replay_video():
-    global cap, running_mode, frame_count, paused, current_video_path, after_id
-
-    if not current_video_path:
-        update_status("⚠️ Không có video nào để phát lại.")
-        return
-
-    # Nếu video đã đóng hoặc tới cuối file → mở lại
-    if cap is None or not cap.isOpened():
-        cap = cv2.VideoCapture(current_video_path)
-        if not cap.isOpened():
-            update_status("❌ Không thể phát lại video.")
-            return
-
-    # Reset về đầu
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-    frame_count = 0
-    paused = False
-    running_mode = "video"
-
-    # Cập nhật nút và trạng thái
-    btn_pause.config(text="⏸ Tạm dừng", bootstyle="warning-outline")
-    update_status("🔁 Phát lại video từ đầu.")
-
-    # Gọi lại luồng xử lý video
-    if after_id:
-        root.after_cancel(after_id)
-    process_stream()
-
-# ===== Xử lý video =====
-def detect_video():
+        btn.config(text="⏸", bootstyle="warning-outline")
+    root.after(0, process_stream)  # Đảm bảo luồng tiếp tục sau khi thay đổi trạng thái
+# Trong detect_video_gui, thay đổi đoạn tạo nút và thêm toggle_pause với tham chiếu nút
+def detect_video_gui():
     stop_current()
-    global cap, frame_count, running_mode, current_video_path, paused
-    running_mode = "video"
-
     file_path = filedialog.askopenfilename(filetypes=[("Video", "*.mp4;*.avi;*.mov")])
     if not file_path:
         return
-    
-    current_video_path = file_path
-    cap = cv2.VideoCapture(file_path)
-    if not cap.isOpened():
-        update_status("❌ Không thể mở video.")
+    if not video_detector.detect_video(file_path):
+        update_status("❌ Không thể mở video. Kiểm tra định dạng hoặc file.")
         return
 
-    frame_count = 0
+    global running_mode
+    running_mode = "video"
+    
     update_status("🎬 Đang phát video...")
+    lbl.place(x=310, y=20, width=Config.IMAGE_W, height=Config.IMAGE_H)
 
-    video_control_frame.place(relx=0.02, rely=0.9)
-    lbl.place(x=180, y=15, relwidth=0.7, relheight=0.9)
+    global btn_pause
+    btn_pause = tb.Button(root, text="⏸", bootstyle="warning", width=10, command=lambda: toggle_pause(btn_pause))
+    btn_pause.place(x=310, y=20 + Config.IMAGE_H - 90, width=80, height=30)
+    print(f"Button pause placed at ({310}, {20 + Config.IMAGE_H - 90}) with size 80x30")
+        
     process_stream()
 
 # ===== Nhận diện camera =====
@@ -266,32 +236,69 @@ def detect_camera():
 
 # ===== Vòng lặp xử lý =====
 def process_stream():
-    global cap, frame_count, running_mode, after_id, paused
+    global after_id, cap, running_mode
 
-    if cap is None or running_mode not in ("video", "camera"):
-        return
+    if running_mode == "video":
+        annotated, results, fps = video_detector.process_stream()
+        if annotated is not None:
+            img = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(img).resize((Config.IMAGE_RESIZE_WIDTH, Config.IMAGE_RESIZE_HEIGHT))
+            imgtk = ImageTk.PhotoImage(image=img)
+            lbl.imgtk = imgtk
+            lbl.config(image=imgtk)
 
-    if paused:
-        after_id = root.after(100, process_stream)
-        return
+            # ===== PHÂN LOẠI THEO NHÓM =====
+            names = results[0].names
+            classes = results[0].boxes.cls.tolist() if len(results[0].boxes) > 0 else []
+            
+            # Danh sách nhóm
+            people_labels = ["person"]
+            animal_labels = ["dog", "cat", "bird", "horse", "cow", "sheep", "elephant", "bear", "zebra", "giraffe"]
+            object_labels = [n for n in names.values() if n not in people_labels + animal_labels]
 
-    ret, frame = cap.read()
-    if not ret:
-        update_status("✅ Video đã phát hết. Bấm 🔁 Phát lại để xem lại.")
-        paused = True
-        return
+            # Đếm từng loại
+            num_people = sum(1 for c in classes if names[int(c)] in people_labels)
+            num_animals = sum(1 for c in classes if names[int(c)] in animal_labels)
+            num_objects = sum(1 for c in classes if names[int(c)] in object_labels)
 
-    frame_count += 1
+        # ===== HIỂN THỊ KẾT QUẢ =====
+            update_status(
+                f"{running_mode.upper()} | FPS: {fps:.1f} | Người: {num_people} |  Động vật: {num_animals} | Đồ vật: {num_objects}"
+)
+            # === Ghi log nhận diện ===
+            detected_objects = []
+            if len(results[0].boxes) > 0:
+                for box in results[0].boxes:
+                    cls = int(box.cls[0])
+                    conf = float(box.conf[0])
+                    label = results[0].names[cls]
+                    detected_objects.append((label, conf))
+            if detected_objects:
+                save_detection_log(running_mode.capitalize(), video_detector.current_video_path or "Live Stream", detected_objects)
+        else:
+            update_status("✅ Video đã kết thúc. Chọn video mới để tiếp tục.")
+            lbl.place_forget()
+            pause_frame.place_forget()
+            root.geometry(f"{Config.WINDOW_WIDTH}x{Config.WINDOW_HEIGHT}")  # Reset kích thước cửa sổ
+            if after_id:
+                root.after_cancel(after_id)
+                after_id = None            
+            return
+        
+    elif running_mode == "camera":
+        if cap is None or not cap.isOpened():
+            return
 
-    # Xử lý YOLO mỗi 5 frame
-    if frame_count % 5 == 0:
+        ret, frame = cap.read()
+        if not ret:
+            update_status("❌ Camera gặp lỗi.")
+            return
+
         frame_small = cv2.resize(frame, (320, 320))
         start = time.time()
         results = model(frame_small, verbose=False)
         annotated = results[0].plot()
         fps = 1 / (time.time() - start + Config.MIN_FPS)
-
-    
 
         # Hiển thị hình ảnh
         img = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
@@ -300,37 +307,29 @@ def process_stream():
         lbl.imgtk = imgtk
         lbl.config(image=imgtk)
 
-        # ===== PHÂN LOẠI THEO NHÓM =====
+        # Phân loại và hiển thị kết quả
         names = results[0].names
         classes = results[0].boxes.cls.tolist() if len(results[0].boxes) > 0 else []
-        
-        # Danh sách nhóm
         people_labels = ["person"]
         animal_labels = ["dog", "cat", "bird", "horse", "cow", "sheep", "elephant", "bear", "zebra", "giraffe"]
         object_labels = [n for n in names.values() if n not in people_labels + animal_labels]
-
-        # Đếm từng loại
         num_people = sum(1 for c in classes if names[int(c)] in people_labels)
         num_animals = sum(1 for c in classes if names[int(c)] in animal_labels)
         num_objects = sum(1 for c in classes if names[int(c)] in object_labels)
-
-        # ===== HIỂN THỊ KẾT QUẢ =====
         update_status(
-    f"{running_mode.upper()} | FPS: {fps:.1f} | Người: {num_people} |  Động vật: {num_animals} | Đồ vật: {num_objects}"
-)
-        # === Ghi log nhận diện ===
+            f"CAMERA | FPS: {fps:.1f} | Người: {num_people} | Động vật: {num_animals} | Đồ vật: {num_objects}"
+        )
+
+        # Ghi log nhận diện
         detected_objects = []
         if len(results[0].boxes) > 0:
-         for box in results[0].boxes:
-             cls = int(box.cls[0])
-             conf = float(box.conf[0])
-             label = results[0].names[cls]
-             detected_objects.append((label, conf))
-
+            for box in results[0].boxes:
+                cls = int(box.cls[0])
+                conf = float(box.conf[0])
+                label = results[0].names[cls]
+                detected_objects.append((label, conf))
         if detected_objects:
-            save_detection_log(running_mode.capitalize(), "Live Stream", detected_objects)
-
-
+            save_detection_log("Camera", "Live Stream", detected_objects)
     after_id = root.after(Config.FRAME_DELAY, process_stream)
 
 # ===== MỞ CỬA SỔ LỊCH SỬ =====
@@ -420,19 +419,10 @@ def open_history_window():
 
 # ===== Nút MENU =====
 tb.Button(menu_frame, text="📷 Ảnh", bootstyle=SUCCESS, command=detect_image_gui, width=15).pack(pady=15)
-tb.Button(menu_frame, text="🎥 Video", bootstyle=INFO, command=detect_video, width=15).pack(pady=15)
+tb.Button(menu_frame, text="🎥 Video", bootstyle=INFO, command=detect_video_gui, width=15).pack(pady=15)
 tb.Button(menu_frame, text="📡 Camera", bootstyle=PRIMARY, command=detect_camera, width=15).pack(pady=15)
 tb.Button(menu_frame, text="❌ Thoát", bootstyle=DANGER, command=root.destroy, width=15).pack(pady=15)
 tb.Button(menu_frame, text="📜 Lịch sử", bootstyle=SECONDARY, command=open_history_window, width=15).pack(pady=15)
-
-# ===== Nút điều khiển video =====
-btn_pause = tb.Button(video_control_frame, text="⏸ Tạm dừng", bootstyle="warning", width=12, padding=5, command=toggle_pause)
-btn_pause.pack(side="left", padx=10, pady=8)
-
-btn_replay = tb.Button(video_control_frame, text="🔁 Phát lại", bootstyle="info", width=12, padding=5, command=replay_video)
-btn_replay.pack(side="left", padx=10, pady=8)
-
-
 
 # ===== Chạy ứng dụng =====
 root.mainloop()
